@@ -742,7 +742,13 @@ function evCard(h,p,c,tr,t,team,hs){
   const nxtCloserMate=mateView(p,(p+4)%5,team);
   v+=pMine*(nxtCloserMate>0.5?2:-1.5);
   // socio coperto: farsi scoprire presto costa (le letture degli altri migliorano)
-  if(!RC.rev && p===RC.partner && p!==RC.caller && c===RC.cc) v-=1.2*hs[p].length;
+  // socio coperto: restare nascosto vale molto se è povero di briscole (ruba punti ai difensori),
+  // poco se è ben accompagnato (scoprirsi non espone la squadra). Vale di più nelle prime mani.
+  if(!RC.rev && p===RC.partner && p!==RC.caller && c===RC.cc){
+    let nT=1; for(const x of h) if(SUIT[x]===t) nT++;                 // briscole del socio, carta chiamata compresa
+    const weak=nT<=1?1:nT===2?0.7:nT===3?0.35:0.15;
+    v-=([12,8,5,3,2][7-h.length]||1)*weak;
+  }
   return v;
 }
 function heurPlayEV(h,p,tr,t,team,hs){
@@ -774,6 +780,38 @@ function buildMateViews(){
   return mv;
 }
 
+
+/* Filtro delle mosse evidentemente sbagliate (dominate): si scartano prima del calcolo,
+   se resta almeno un'alternativa. Non sono preferenze di stile: sono giocate che regalano punti o briscole. */
+function rootMate(o,q){
+  if(o===q) return 1;
+  const knows=G.revealed || G.hands[o].includes(G.calledCard);
+  if(knows){ const side=x=>x===G.caller||x===G.partner; return side(o)===side(q)?1:0; }
+  if(q===G.caller) return o===G.caller?1:0;
+  const mv=buildMateViews(); return mv[o][q];
+}
+function dominated(o,hand){
+  const t=G.trump, tr=G.trick, pos=tr.length+1, bad=new Set();
+  let P=0; for(const x of tr) P+=PTS[x.c];
+  const wi=tr.length?winIdx(tr,t):-1, wc=wi>=0?tr[wi].c:-1, wp=wi>=0?tr[wi].p:-1;
+  const unseenBeats=card=>{ for(let x=0;x<40;x++) if(!G.seen[x] && !hand.includes(x) && beats(x,card,t)) return true; return false; };
+  const cheapSide=hand.filter(x=>SUIT[x]!==t && PTS[x]===0);
+  const cheapTrump=hand.filter(x=>SUIT[x]===t && STR[x]<=5);
+  for(const c of hand){
+    const b=wi<0||beats(c,wc,t);
+    // 1. aprire con un carico (Asso o Tre di seme) che qualcuno può prendere, avendo un liscio
+    if(pos===1 && SUIT[c]!==t && PTS[c]>=10 && (cheapSide.length||cheapTrump.length) && unseenBeats(c) && hand.length>=3) bad.add(c);
+    // 2. briscola sotto una briscola più alta, avendo carte di seme
+    if(wi>=0 && SUIT[c]===t && !b && SUIT[wc]===t && hand.some(x=>SUIT[x]!==t) && rootMate(o,wp)<0.9) bad.add(c);
+    // 3. Asso, Tre o Re di briscola su una presa povera nelle prime mani, avendo altro
+    if(wi>=0 && SUIT[c]===t && STR[c]>=8 && b && P<6 && hand.length>=5 && hand.some(x=>x!==c && (SUIT[x]!==t || STR[x]<STR[c]))) bad.add(c);
+    // 4. da quarto, caricare su una presa che probabilmente è degli avversari, avendo un liscio
+    if(pos===4 && SUIT[c]!==t && PTS[c]>=10 && !b && rootMate(o,wp)<0.5 && cheapSide.length) bad.add(c);
+  }
+  const keep=hand.filter(c=>!bad.has(c));
+  return keep.length?keep:hand;
+}
+
 /* Decisione CPU: Monte Carlo su mondi coerenti con le letture; finale risolto in modo esatto */
 function decide(o){
   const all=G.hands[o]; if(all.length===1) return all[0];
@@ -785,7 +823,8 @@ function decide(o){
     if(G.trick.length===0) aceOk=false;
     else if(all.length>=5){ let P=0; for(const x of G.trick) P+=PTS[x.c]; aceOk=G.trick.some(x=>x.c===G.trump*10+2) || P>=15; }
   }
-  const hand=aceOk ? all : all.filter(c=>c!==G.trump*10);
+  const hand0=aceOk ? all : all.filter(c=>c!==G.trump*10);
+  const hand=(!(G.agent&&G.agent[o]==='old') && hand0.length>1)?dominated(o,hand0):hand0;
   if(hand.length===1) return hand[0];
   const nC=hand.length, util=new Float64Array(nC);
   const endgame=Math.max(...G.hands.map(h=>h.length))<=3;
@@ -801,11 +840,16 @@ function decide(o){
     for(let i=0;i<nC;i++){
       const hs=W.hands.map(h=>h.slice()), c=hand[i];
       hs[o].splice(hs[o].indexOf(c),1);
-      const tr=G.trick.map(x=>({p:x.p,c:x.c})); tr.push({p:o,c});
+      const tr0=G.trick.map(x=>({p:x.p,c:x.c}));
+      RC.rev=G.revealed;
+      // ragionamento diretto sulla presa (posizione, letture, risposte degli altri, valore futuro):
+      // guida la scelta e toglie il rumore delle simulazioni
+      const evNow=isEV?evCard(hs[o],o,c,tr0,G.trump,W.team,hs):0;
+      const tr=tr0.slice(); tr.push({p:o,c});
       RC.rev=G.revealed||c===G.calledCard;
       const g=endgame?exact(hs,tr,(o+1)%5,G.trump,W.team,-1,999):rollout(hs,tr,(o+1)%5,G.trump,W.team,pol);
       const cp=soFar+g, myPts=mineCaller?cp:120-cp, win=mineCaller?cp>=G.target:cp<G.target;
-      util[i]+=(win?1:0)+0.35*myPts/120;
+      util[i]+=(win?1:0)+0.35*myPts/120+0.008*evNow;
     }
     n++;
   }
