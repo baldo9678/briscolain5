@@ -978,8 +978,10 @@ function onAct(msg){
   if(NET.mode!=='host'||!G||msg.sameTab) return;
   const o=msg.data; if(!o||typeof o!=='object') return;
   if(o.t==='sit'){
-    const s=o.seat;
-    if(!Number.isInteger(s)||s<1||s>4||G.seats[s].kind!=='cpu'||seatOfPeer(msg.peer)>=0) return;
+    let s=o.seat;
+    if(seatOfPeer(msg.peer)>=0) return;
+    if(!Number.isInteger(s)||s<1||s>4||G.seats[s].kind!=='cpu') s=[1,2,3,4].find(q=>G.seats[q].kind==='cpu');
+    if(!s){ log('Un amico vuole sedersi, ma il tavolo è al completo.','t'); render(); return; }
     G.seats[s]={kind:'human',peer:msg.peer,by:msg.by||null};
     G.thinking=G.thinking===s?-1:G.thinking;
     log(`${P(s)} si siede al tavolo.`,'t'); resolveNames(); render(); sendState(); return;
@@ -988,7 +990,19 @@ function onAct(msg){
   if(o.t==='stand'){ G.seats[p]={kind:'cpu'}; log(`Il posto ${p+1} torna alla CPU.`,'t'); render(); resumeCpu(); return; }
   applyAction(p,o);
 }
+function autoSeat(){
+  if(NET.mode!=='host'||!G||!NET.room) return;
+  let ch=false;
+  for(const pr of NET.room.peers()){
+    if(pr.sameTab||!pr.presence||pr.presence.want!==1||seatOfPeer(pr.peer)>=0) continue;
+    const s=[1,2,3,4].find(q=>G.seats[q].kind==='cpu'); if(!s) break;
+    G.seats[s]={kind:'human',peer:pr.peer,by:pr.peer}; if(G.thinking===s) G.thinking=-1;
+    log(`${P(s)} si siede al tavolo.`,'t'); ch=true;
+  }
+  if(ch){ resolveNames(); render(); sendState(); }
+}
 function onPeersChange(ch){
+  autoSeat();
   if(NET.mode==='host' && G){
     let changed=false;
     for(const l of ch.left){ const p=seatOfPeer(l.peer); if(p>0){ G.seats[p]={kind:'cpu'}; log(`Il posto ${p+1} torna alla CPU.`,'t'); changed=true; } }
@@ -1031,10 +1045,10 @@ function onState(msg){
   resolveNames(); render();
   if(NET.autoSit && !seated() && NET.room && (!NET.sitAt || Date.now()-NET.sitAt>3000)){
     const free=[1,2,3,4].find(q=>G.seats[q].kind==='cpu');
-    if(free){ NET.sitAt=Date.now(); NET.room.emit('act',{t:'sit',seat:free}).catch(()=>{}); }
+    if(free){ NET.sitAt=Date.now(); NET.room.presence({want:1}).catch(()=>{}); NET.room.emit('act',{t:'sit',seat:free}).catch(()=>{}); }
     else { NET.autoSit=false; NET.err='Il tavolo è al completo: per ora guardi la partita.'; G.tab='net'; }
   }
-  if(seated()) NET.autoSit=false;
+  if(seated() && NET.autoSit){ NET.autoSit=false; NET.room&&NET.room.presence({want:null}).catch(()=>{}); }
   if(G.phase==='end' && NET.shownEnd!==G.handNo){ NET.shownEnd=G.handNo; showResult(); }
   if(G.phase!=='end' && !$('#modal').hidden && $('#sheet').dataset.kind==='result') closeModal();
 }
@@ -1167,7 +1181,7 @@ async function initNet(){
   room.presence({pk:NET.pk,name:NET.nick||''});
   room.on('state',onState); room.on('hand',onHand); room.on('act',onAct);
   room.onPeers(ch=>{ const me=ch.peers.find(x=>x.sameTab); if(me) NET.peer=me.peer; if(NET.mode!=='client'&&NET.mode!=='watch'&&G&&G.seats&&G.seats[0]) G.seats[0].peer=NET.peer; onPeersChange(ch); resolveNames(); });
-  setInterval(()=>{ if(NET.mode==='host') sendState(); else if(NET.hostPeer && Date.now()-NET.lastState>15000 && G && G.tab==='net') renderSide(); },4000);
+  setInterval(()=>{ if(NET.mode==='host'){ autoSeat(); sendState(); } else if(NET.hostPeer && Date.now()-NET.lastState>15000 && G && G.tab==='net') renderSide(); },4000);
   const t=new URLSearchParams(location.search).get('t');
   if(t){ NET.invited=true; NET.autoSit=true; joinCode(t); refreshStartMenu(); }
   if(G&&G.tab==='net') renderSide();
@@ -1259,7 +1273,7 @@ function renderAction(){
     if(NET.mode==='host'){ const n=G.seats.filter((x,i)=>i>0&&x.kind==='human').length;
       h=`<div class="msg">Tavolo aperto. Invita gli amici con il link qui sotto; i posti liberi li gioca la CPU. ${n?`Seduti: <b>${n}</b>.`:'Nessun amico seduto per ora.'}</div>${inviteHTML()}<div class="opts"><button class="btn primary" data-act="start">Inizia la partita</button></div>`; }
     else if(NET.mode==='client') h=`<div class="msg"><span class="dots">Sei seduto. Aspetta che chi ospita avvii la partita</span></div>`;
-    else if(NET.mode==='watch') h=`<div class="msg">Scegli un posto libero dalla scheda Tavolo per giocare.</div>`;
+    else if(NET.mode==='watch') h=`<div class="msg">${NET.autoSit?'<span class="dots">Ti sto facendo sedere</span>':'Non sei ancora seduto.'}</div><div class="opts"><button class="btn primary" data-act="sitany">Siediti al tavolo</button></div>`;
     else h=`<div class="msg">Scegli come giocare.</div><div class="opts"><button class="btn primary" data-act="menu">Apri il menu</button></div>`;
   }
   else if(G.phase==='deal') h=`<div class="msg dots">Si distribuiscono le carte</div>`;
@@ -1295,7 +1309,7 @@ function renderAction(){
 }
 function renderHand(){
   const hd=$('#hand'), mh=$('#mehead');
-  if(!seated()){ hd.innerHTML=''; mh.innerHTML='<span class="nm">Stai guardando il tavolo</span><span class="note" style="margin:0">Siediti dalla scheda Tavolo per giocare.</span>'; return; }
+  if(!seated()){ hd.innerHTML=''; mh.innerHTML=`<span class="nm">Stai guardando il tavolo</span>${NET.mode==='watch'?`<button class="btn primary" data-act="sitany">${NET.autoSit?'Ti sto facendo sedere…':'Siediti al tavolo'}</button>`:''}`; return; }
   const live=G.phase==='play'&&G.turn===ME&&!G.busy;
   hd.classList.toggle('live',live);
   hd.innerHTML=G.hands[ME].map(c=>c<0?`<span class="hcard">${cardHTML(-1)}</span>`:`<button class="hcard" type="button" data-c="${c}" ${live?'':'disabled'} aria-label="${cardName(c)}">${cardHTML(c,c===G.calledCard&&G.trump>=0?'<span class="star">★</span>':'')}</button>`).join('');
@@ -1442,6 +1456,13 @@ document.addEventListener('click',e=>{
   else if(x==='m-solo') chooseSolo();
   else if(x==='m-host') chooseHost();
   else if(x==='m-join'){ saveNick(); if(!NET.nick){ const el=$('#nick'); if(el){ el.focus(); el.placeholder='Scrivi qui il tuo nome'; } } else chooseJoin(); }
+  else if(x==='sitany' && NET.room && G && G.seats){
+    NET.autoSit=true; NET.sitAt=0;
+    const free=[1,2,3,4].find(q=>G.seats[q].kind==='cpu');
+    NET.room.presence({want:1}).catch(()=>{});
+    if(free) NET.room.emit('act',{t:'sit',seat:free}).catch(()=>{});
+    renderAction();
+  }
   else if(x==='m-retry'){ const t=new URLSearchParams(location.search).get('t'); if(t) joinCode(t); }
   else if(x==='m-invite'){
     saveNick();
