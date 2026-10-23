@@ -556,7 +556,7 @@ function strategicAdj(o,hand){
       // briscola sotto una briscola più alta: persa senza motivo
       if(wi>=0 && !b && SUIT[wc]===t && hasSide) adj[i]-=0.06+0.003*KEEP[c%10];
       // briscola alta spesa per poco: tiene conto di quanto porterebbe più avanti
-      if(b && hand.length>=4){ const cost=KEEP[c%10]*(0.6+hand.length/16)-(P+PTS[c]); if(cost>0) adj[i]-=0.008*cost; }
+      if(b && hand.length>=4 && !(o===G.caller && STR[c]<=5 && P<7 && tr.length>=1 && tr.length<=3)){ const cost=KEEP[c%10]*(0.6+hand.length/16)-(P+PTS[c]); if(cost>0) adj[i]-=0.008*cost; }
       // il chiamante e il socio non aprono di Asso o Tre di briscola nelle prime mani
       if(wi<0 && STR[c]>=9 && hand.length>=5 && (o===G.caller||G.partner===o)) adj[i]-=0.06;
     }
@@ -604,6 +604,12 @@ function strategicAdj(o,hand){
       const risk=1-keep;
       if(callerSide) adj[i]-=(0.05+0.011*PTS[c])*risk*(hand.length>=3?1:0.35);
       // per i difensori la regola rigida peggiorava i risultati (si tenevano i punti e li perdevano a fine mano)
+    }
+    // ---- medio gioco: il chiamante da 2°, 3° o 4° protegge la mano con una briscola piccola
+    //      quando a terra ci sono meno di 7 punti (così i difensori dopo non caricano) ----
+    if(o===G.caller && wi>=0 && tr.length>=1 && tr.length<=3 && hand.length>=3 && hand.length<=6
+       && P<7 && SUIT[c]===t && b && STR[c]<=5 && wp!==G.caller){
+      adj[i]+=0.15-0.006*STR[c];
     }
     // ---- carichi e briscole secondo la posizione nella mano (1° … 5°) ----
     {
