@@ -717,11 +717,10 @@ function inviteHTML(){
   }
   const url=inviteUrl(), msg='Vieni a giocare a Briscola in 5 con me: '+url;
   return `<div class="invite" style="display:grid;gap:8px;margin:10px 0">
-    <label class="lbl" for="inviteUrl">Link d'invito al tavolo</label>
-    <input id="inviteUrl" readonly value="${esc(url)}" style="width:100%;min-width:0;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
-    <div class="opts"><button class="btn primary" data-act="copyinvite" type="button">Copia link</button>
-    <a class="btn" style="text-decoration:none;color:var(--ink)" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Invia su WhatsApp</a></div>
-    <p class="note" style="margin:0" id="inviteNote">Chi apre il link entra direttamente nel tavolo, senza account: scrive il suo nome e sceglie un posto. Codice del tavolo: <b>${esc(code)}</b>.</p>
+    <div class="opts"><a class="btn primary" style="text-decoration:none" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Invita su WhatsApp</a>
+    <button class="btn" data-act="copyinvite" type="button">Copia il link</button></div>
+    <input id="inviteUrl" readonly value="${esc(url)}" aria-label="Link d'invito" style="width:100%;min-width:0;background:var(--panel-2);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px">
+    <p class="note" style="margin:0" id="inviteNote">Chi apre il link scrive il suo nome e si siede da solo al primo posto libero.</p>
   </div>`;
 }
 const isHuman=p=> NET.mode==='solo' ? p===0 : !!(G.seats && G.seats[p] && G.seats[p].kind==='human');
@@ -997,7 +996,7 @@ function onState(msg){
   if(NET.mode==='host'||msg.sameTab) return;
   if(!NET.wantJoin){
     const was=NET.hostAvailable; NET.hostAvailable=true; NET.hostPeer=msg.peer; NET.lastState=Date.now();
-    if(NET.autoJoin && NET.nick && NET.mode==='solo' && G && G.phase==='lobby'){ NET.autoJoin=false; chooseJoin(); }
+    if((NET.autoJoin||NET.invited) && NET.nick && NET.mode==='solo' && G && G.phase==='lobby' && !NET.choseSolo){ NET.autoJoin=false; chooseJoin(); }
     else { if(!was) refreshStartMenu(); return; }
   }
   if(NET.hostPeer && msg.peer!==NET.hostPeer && Date.now()-NET.lastState<10000) return;
@@ -1021,6 +1020,12 @@ function onState(msg){
     bluffs:st.end?(st.end.bl||[]).map(([p,pos,r,ps])=>({p,pos,r,ps:ps/100})):[],bel:[]};
   sortHands();
   resolveNames(); render();
+  if(NET.autoSit && !seated() && NET.room && (!NET.sitAt || Date.now()-NET.sitAt>3000)){
+    const free=[1,2,3,4].find(q=>G.seats[q].kind==='cpu');
+    if(free){ NET.sitAt=Date.now(); NET.room.emit('act',{t:'sit',seat:free}).catch(()=>{}); }
+    else { NET.autoSit=false; NET.err='Il tavolo è al completo: per ora guardi la partita.'; G.tab='net'; }
+  }
+  if(seated()) NET.autoSit=false;
   if(G.phase==='end' && NET.shownEnd!==G.handNo){ NET.shownEnd=G.handNo; showResult(); }
   if(G.phase!=='end' && !$('#modal').hidden && $('#sheet').dataset.kind==='result') closeModal();
 }
@@ -1130,7 +1135,7 @@ async function initNet(){
   room.onPeers(ch=>{ const me=ch.peers.find(x=>x.sameTab); if(me) NET.peer=me.peer; if(NET.mode!=='client'&&NET.mode!=='watch'&&G&&G.seats&&G.seats[0]) G.seats[0].peer=NET.peer; onPeersChange(ch); resolveNames(); });
   setInterval(()=>{ if(NET.mode==='host') sendState(); else if(NET.hostPeer && Date.now()-NET.lastState>15000 && G && G.tab==='net') renderSide(); },4000);
   const t=new URLSearchParams(location.search).get('t');
-  if(t) joinCode(t);
+  if(t){ NET.invited=true; NET.autoSit=true; joinCode(t); refreshStartMenu(); }
   if(G&&G.tab==='net') renderSide();
 }
 function joinCode(code){
@@ -1395,6 +1400,12 @@ document.addEventListener('click',e=>{
   else if(x==='m-solo') chooseSolo();
   else if(x==='m-host') chooseHost();
   else if(x==='m-join'){ saveNick(); if(!NET.nick){ const el=$('#nick'); if(el){ el.focus(); el.placeholder='Scrivi qui il tuo nome'; } } else chooseJoin(); }
+  else if(x==='m-invite'){
+    saveNick();
+    if(!NET.nick){ const el=$('#nick'); if(el){ el.focus(); el.placeholder='Scrivi qui il tuo nome'; } }
+    else if(NET.hostAvailable){ NET.autoSit=true; chooseJoin(); }
+    else { NET.autoJoin=true; NET.autoSit=true; refreshStartMenu(); }
+  }
   else if(x==='m-code'){ const el=$('#joincode'); joinCode(el?el.value:''); }
   else if(x==='menu') showStartMenu();
   else if(x==='start' && NET.mode==='host' && G.phase==='lobby') newGame();
@@ -1414,14 +1425,28 @@ function lobbyG(){
   return {tok:++TOK,scores:[0,0,0,0,0],handNo:0,dealer:4,history:[],tab:'log',showReads:false,budget:280,seats:freshSeats(),
     phase:'lobby',hands:[[],[],[],[],[]],trick:[],seen:new Uint8Array(40),ptsCap:[0,0,0,0,0],caller:-1,partner:-1,calledCard:-1,callPos:-1,trump:-1,target:61,revealed:false,bel:[],log:[],thinking:-1,busy:false,auction:null,turn:-1,bluffs:[],lastD:null,thr:[.52,.52,.5,.54,.51]};
 }
+function inviteMenuHTML(){
+  let st='';
+  if(!NET.netChecked||NET.joining) st='Mi collego al tavolo…';
+  else if(!NET.room) st=`<span style="color:var(--lose)">Non riesco a collegarmi: ${esc(NET.why||'errore di rete')}.</span>`;
+  else if(NET.joinErr) st=`<span style="color:var(--lose)">${esc(NET.joinErr)}</span>`;
+  else if(!NET.hostAvailable) st='Collegato. Aspetto che chi ti ha invitato apra il tavolo…';
+  else st='Il tavolo è pronto.';
+  return `<h2>Ti hanno invitato a giocare</h2>
+    <p style="margin:0">Briscola in 5: scrivi il tuo nome ed entra, ti siedi da solo al primo posto libero.</p>
+    <div style="display:grid;gap:6px"><label class="lbl" for="nick">Il tuo nome</label>
+    <input id="nick" maxlength="24" value="${esc(NET.nick||'')}" placeholder="es. Marco" autocomplete="nickname" style="background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit;font-size:16px"></div>
+    <button class="btn primary" data-act="m-invite" style="padding:12px;font-size:16px">Entra al tavolo</button>
+    <p class="note" style="margin:0">${st}</p>
+    <p class="note" style="margin:0"><button class="btn" data-act="m-solo" style="font-size:13px;padding:5px 10px">Oppure gioca da solo contro le CPU</button></p>`;
+}
 function startMenuHTML(note){
+  if(NET.invited) return inviteMenuHTML();
   let net='';
   if(!NET.netChecked) net='<p class="note" style="margin:0">Mi collego al server per il gioco con gli amici…</p>';
   else if(!NET.room) net=`<p class="note" style="margin:0;color:var(--lose)">Gioco con gli amici non disponibile: ${esc(NET.why||'collegamento non riuscito')}.</p>`;
   else net=`<button class="btn" data-act="m-host">Crea un tavolo per gli amici</button>
     <p class="note" style="margin:0">Ottieni un link da mandare agli amici; quando sono seduti avvii tu la partita.</p>
-    <label class="lbl" for="joincode">Oppure entra nel tavolo di un amico</label>
-    <div class="opts"><input id="joincode" placeholder="codice, es. b5-abc123" autocomplete="off" style="flex:1;min-width:0;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit"><button class="btn" data-act="m-code">Entra</button></div>
     ${NET.joining?'<p class="note" style="margin:0">Mi collego al tavolo…</p>':''}
     ${NET.hostAvailable&&!NET.joining?`<button class="btn primary" data-act="m-join">Entra nel tavolo</button><p class="note" style="margin:0">${NET.nick?'Sei collegato al tavolo del tuo amico.':'Scrivi il tuo nome qui sopra, poi entra.'}</p>`:''}
     ${NET.autoJoin&&NET.nick&&!NET.hostAvailable&&!NET.joining&&!NET.joinErr?'<p class="note" style="margin:0">Collegato: entro nel tavolo appena chi ospita manda lo stato.</p>':''}
@@ -1450,7 +1475,7 @@ function leaveCurrent(){
   if(NET.mode==='client' && NET.room) NET.room.emit('act',{t:'stand'}).catch(()=>{});
   NET.wantJoin=false;
 }
-function chooseSolo(){ leaveCurrent(); closeModal(); NET.mode='solo'; ME=0; G=lobbyG(); G.seats=freshSeats(); newGame(); }
+function chooseSolo(){ NET.choseSolo=true; leaveCurrent(); closeModal(); NET.mode='solo'; ME=0; G=lobbyG(); G.seats=freshSeats(); newGame(); }
 function chooseHost(){
   if(!NET.room||!NET.owner) return;
   leaveCurrent(); closeModal();
