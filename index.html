@@ -1106,7 +1106,9 @@ function makePeerRoom(peer){
         else if(m.k==='peers' && Array.isArray(m.list)){ list=m.list.slice(0,16); firePeers(); } });
       c.on('close',()=>{ if(hostConn===c){ hostConn=null; list=[]; firePeers(); } });
       c.on('error',e=>{ if(!ok) rej(e); });
-      setTimeout(()=>{ if(!ok) rej(new Error('timeout')); },12000);
+      const onPeerErr=e=>{ if(!ok && e && e.type==='peer-unavailable'){ ok=true; rej(e); } };
+      peer.on('error',onPeerErr);
+      setTimeout(()=>{ peer.off&&peer.off('error',onPeerErr); if(!ok){ try{c.close();}catch(e){} rej({type:'timeout'}); } },20000);
     }),
   };
 }
@@ -1124,9 +1126,20 @@ async function initNet(){
     NET.kp=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},false,['deriveKey']);
     const j=await crypto.subtle.exportKey('jwk',NET.kp.publicKey); NET.pk={x:j.x,y:j.y};
   }catch(e){ NET.why='cifratura non disponibile'; return; }
-  const id='b5-'+Math.random().toString(36).slice(2,8);
-  const peer=new Peer(id,Object.assign({debug:0},window.B5_PEER_OPTS||{}));
-  const ok=await new Promise(res=>{ peer.on('open',()=>res(true)); peer.on('error',()=>res(false)); setTimeout(()=>res(false),12000); });
+  let peer=null, ok=false, id='';
+  for(let attempt=0; attempt<3 && !ok; attempt++){
+    id='b5-'+Math.random().toString(36).slice(2,8);
+    const ICE={iceServers:[
+      {urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']},
+      {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+      {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+      {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'}]};
+    const pp=new Peer(id,Object.assign({debug:0,config:ICE},window.B5_PEER_OPTS||{}));
+    peer=pp; NET.peerObj=pp;
+    pp.on('disconnected',()=>{ try{ if(!pp.destroyed) pp.reconnect(); }catch(e){} });
+    ok=await new Promise(res=>{ pp.on('open',()=>res(true)); pp.on('error',e=>{ if(!pp.open) res(false); }); setTimeout(()=>res(false),12000); });
+    if(!ok){ try{ pp.destroy(); }catch(e){} await new Promise(r=>setTimeout(r,1500)); }
+  }
   if(!ok){ NET.why='il server di collegamento non risponde, riprova tra poco'; return; }
   const room=makePeerRoom(peer);
   NET.room=room; NET.code=id; NET.owner=true; NET.myId=id; NET.user=userShim(room,id);
@@ -1143,8 +1156,16 @@ function joinCode(code){
   if(!/^b5-[a-z0-9]{3,12}$/.test(code)){ NET.joinErr='Il codice del tavolo non è valido: ha la forma b5-abc123.'; refreshStartMenu(); return; }
   if(!NET.room||code===NET.code) return;
   NET.joinErr=''; NET.joining=true; NET.autoJoin=true; refreshStartMenu();
-  NET.room.connectTo(code).then(()=>{ NET.joining=false; refreshStartMenu(); })
-    .catch(()=>{ NET.joining=false; NET.autoJoin=false; NET.joinErr='Non trovo il tavolo: controlla il codice e che chi ospita abbia la pagina aperta.'; refreshStartMenu(); });
+  const tryIt=(n)=>NET.room.connectTo(code).then(()=>{ NET.joining=false; NET.joinErr=''; refreshStartMenu(); })
+    .catch(e=>{
+      const type=e&&e.type;
+      if(type==='peer-unavailable'){ NET.joining=false; NET.joinErr='Il tavolo non risponde: chi ti ha invitato deve avere la pagina aperta con il tavolo creato. Quando lo riapre, ricarica questa pagina.'; refreshStartMenu(); return; }
+      if(n<2){ NET.joinErr='Collegamento lento, riprovo…'; refreshStartMenu(); return tryIt(n+1); }
+      NET.joining=false; NET.autoJoin=false;
+      NET.joinErr='La tua rete non riesce a collegarsi direttamente al tavolo (succede su alcune reti mobili o aziendali). Prova a passare al Wi-Fi, o il contrario, e ricarica la pagina.';
+      refreshStartMenu();
+    });
+  tryIt(0);
 }
 
 /* ============================ INTERFACCIA ============================ */
@@ -1400,6 +1421,7 @@ document.addEventListener('click',e=>{
   else if(x==='m-solo') chooseSolo();
   else if(x==='m-host') chooseHost();
   else if(x==='m-join'){ saveNick(); if(!NET.nick){ const el=$('#nick'); if(el){ el.focus(); el.placeholder='Scrivi qui il tuo nome'; } } else chooseJoin(); }
+  else if(x==='m-retry'){ const t=new URLSearchParams(location.search).get('t'); if(t) joinCode(t); }
   else if(x==='m-invite'){
     saveNick();
     if(!NET.nick){ const el=$('#nick'); if(el){ el.focus(); el.placeholder='Scrivi qui il tuo nome'; } }
@@ -1438,6 +1460,7 @@ function inviteMenuHTML(){
     <input id="nick" maxlength="24" value="${esc(NET.nick||'')}" placeholder="es. Marco" autocomplete="nickname" style="background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit;font-size:16px"></div>
     <button class="btn primary" data-act="m-invite" style="padding:12px;font-size:16px">Entra al tavolo</button>
     <p class="note" style="margin:0">${st}</p>
+    ${NET.joinErr&&!NET.joining?'<button class="btn" data-act="m-retry">Riprova a collegarti</button>':''}
     <p class="note" style="margin:0"><button class="btn" data-act="m-solo" style="font-size:13px;padding:5px 10px">Oppure gioca da solo contro le CPU</button></p>`;
 }
 function startMenuHTML(note){
