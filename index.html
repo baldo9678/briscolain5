@@ -344,7 +344,8 @@ function heurPlay(h,p,tr,t,team,hs){
   }
   return best;
 }
-function rollout(hs,tr,turn,t,team){
+function rollout(hs,tr,turn,t,team,pol){
+  pol=pol||heurPlay;
   let g=0;
   for(;;){
     if(tr.length===5){
@@ -353,7 +354,7 @@ function rollout(hs,tr,turn,t,team){
       if(hs[w].length===0) return g;
     }
     const h=hs[turn]; if(h.length===0) return g;
-    const c=heurPlay(h,turn,tr,t,team,hs);
+    const c=pol(h,turn,tr,t,team,hs);
     if(c===RC.cc) RC.rev=true;
     h.splice(h.indexOf(c),1); tr.push({p:turn,c}); turn=(turn+1)%5;
   }
@@ -661,6 +662,118 @@ function strategicAdj(o,hand){
   }
   return adj;
 }
+/* ======================================================================
+   AGENTE A VALORE ATTESO
+   Ogni giocatore sceglie la carta che massimizza:
+     punti netti attesi della sua squadra nella presa (contando come risponderanno gli altri)
+     − valore futuro della carta che spende
+     + vantaggio di chi aprirà la mano dopo.
+   Squadre: chi sa (socio, carta già uscita) usa le squadre vere; gli altri usano le loro letture.
+   Gli altri rispondono per convenienza: prendono se i punti in gioco valgono più della carta che
+   dovrebbero spendere, caricano se credono che la presa resti alla loro squadra.
+   ====================================================================== */
+const EVP={mv:null};   // mv[p][q]: probabilità, secondo p, che q sia suo compagno (fuori dai mondi simulati)
+/* probabilità che q sia compagno di p, nel mondo simulato ma con le conoscenze di p */
+function mateView(p,q,team){
+  if(p===q) return 1;
+  if(RC.rev || p===RC.partner || (p===RC.caller && RC.partner===RC.caller)) return team[p]===team[q]?1:0;
+  if(q===RC.caller) return p===RC.caller?1:0;                          // il chiamante è noto a tutti
+  if(EVP.mv && EVP.mv[p]) return EVP.mv[p][q];
+  return p===RC.caller ? 0.25 : 2/3;                                  // senza letture: uniforme
+}
+/* valore futuro di una carta: punti che porterà nelle mani che restano se la tengo */
+function futureVal(c,t,hs,p,trickPts){
+  const tricksLeft=hs[p].length;                                      // carte che mi restano dopo questa
+  if(tricksLeft<=0) return 0;
+  let left=0; for(let q=0;q<5;q++) for(const x of hs[q]) left+=PTS[x];
+  const perTrick=left/Math.max(1,tricksLeft);
+  if(SUIT[c]===t){
+    let higher=0; for(let q=0;q<5;q++){ if(q===p) continue; for(const x of hs[q]) if(SUIT[x]===t && STR[x]>STR[c]) higher++; }
+    const pWin=1/(1+0.75*higher);
+    return pWin*(PTS[c]+1.3*perTrick) - (1-pWin)*PTS[c]*0.5;
+  }
+  // carta di seme con punti: se è la più alta rimasta del suo seme può ancora prendere
+  if(PTS[c]>=10){
+    let higher=0; for(let q=0;q<5;q++){ if(q===p) continue; for(const x of hs[q]) if(SUIT[x]===SUIT[c] && STR[x]>STR[c]) higher++; }
+    return higher? 0 : 0.25*perTrick;
+  }
+  return 0;
+}
+const sigm=x=>1/(1+Math.exp(-x));
+/* la carta più economica (per valore futuro) con cui q batte la carta che sta prendendo */
+function cheapestBeat(h,card,t,hs,q,trickPts){
+  let best=-1, bc=1e9;
+  for(const x of h) if(beats(x,card,t)){ const k=futureVal(x,t,hs,q,trickPts)-PTS[x]*0.5; if(k<bc){bc=k;best=x;} }
+  return best<0?null:{c:best,cost:bc};
+}
+/* valore atteso, per p, di giocare la carta c */
+function evCard(h,p,c,tr,t,team,hs){
+  const L=tr.length;
+  let P=0; for(const x of tr) P+=PTS[x.c];
+  let cur, pMine;
+  if(L===0){ cur=c; pMine=1; }
+  else {
+    const wi=winIdx(tr,t), wc=tr[wi].c, wp=tr[wi].p;
+    if(beats(c,wc,t)){ cur=c; pMine=1; } else { cur=wc; pMine=mateView(p,wp,team); }
+  }
+  let T=P+PTS[c];
+  const others=[]; for(let k=1;k<=4-L;k++) others.push((p+k)%5);
+  // le carte di chi gioca dopo: senza la mia e con la mano attuale nel mondo simulato
+  for(const q of others){
+    const mq=mateView(p,q,team);                                       // q è dei miei?
+    const qHolds=mq*pMine+(1-mq)*(1-pMine);                            // q vede la presa della sua squadra
+    const hq=hs[q];
+    const cb=cheapestBeat(hq,cur,t,hs,q,T);
+    if(cb){
+      const gain=2*T+3;                                                 // prenderla sposta T punti e dà la mano
+      const pTake=(1-qHolds)*sigm((gain-cb.cost)/4);
+      pMine=pTake*mq+(1-pTake)*pMine;
+      T+=pTake*PTS[cb.c];
+      if(pTake>0.5) cur=cb.c;
+    }
+    // carico di q se crede che la presa resti alla sua squadra
+    const qHolds2=mq*pMine+(1-mq)*(1-pMine);
+    const ld=loadOf(hq,t);
+    if(ld) T+=ld*sigm((qHolds2-0.7)*8)*0.9;
+  }
+  let v=T*(2*pMine-1);
+  v-=futureVal(c,t,hs,p,P);
+  // chi vince apre la mano dopo; chi chiude (il giocatore prima di lui) è un vantaggio se è un compagno
+  const nxtCloserMate=mateView(p,(p+4)%5,team);
+  v+=pMine*(nxtCloserMate>0.5?2:-1.5);
+  // socio coperto: farsi scoprire presto costa (le letture degli altri migliorano)
+  if(!RC.rev && p===RC.partner && p!==RC.caller && c===RC.cc) v-=1.2*hs[p].length;
+  return v;
+}
+function heurPlayEV(h,p,tr,t,team,hs){
+  if(h.length===1) return h[0];
+  let best=h[0], bv=-1e9;
+  for(const c of h){
+    if(p===RC.caller && c===t*10 && tr.length===0 && h.length>1) continue;   // il chiamante non apre con l'Asso
+    const i=h.indexOf(c); h.splice(i,1);
+    const v=evCard(h,p,c,tr,t,team,hs);
+    h.splice(i,0,c);
+    if(v>bv){bv=v;best=c;}
+  }
+  return best;
+}
+/* letture fuori dai mondi simulati: per ogni CPU, quanto crede che ognuno sia suo compagno */
+function buildMateViews(){
+  const mv=[];
+  for(let p=0;p<5;p++){
+    const row=new Float64Array(5); row[p]=1;
+    const b=G.bel&&G.bel[p];
+    for(let q=0;q<5;q++){
+      if(q===p) continue;
+      if(p===G.caller){ row[q]=b&&!b.known? (b.hyps.indexOf(q)>=0? b.w[b.hyps.indexOf(q)] : 0) : 0.25; }
+      else if(q===G.caller){ row[q]=0; }
+      else { const pp=b&&!b.known&&b.hyps.indexOf(q)>=0? b.w[b.hyps.indexOf(q)] : 1/3; row[q]=1-pp; }
+    }
+    mv[p]=row;
+  }
+  return mv;
+}
+
 /* Decisione CPU: Monte Carlo su mondi coerenti con le letture; finale risolto in modo esatto */
 function decide(o){
   const all=G.hands[o]; if(all.length===1) return all[0];
@@ -678,6 +791,8 @@ function decide(o){
   const endgame=Math.max(...G.hands.map(h=>h.length))<=3;
   const t0=performance.now(), budget=G.budget, minS=endgame?40:80, maxS=endgame?400:3000;
   let n=0;
+  const isEV=!(G.agent&&G.agent[o]==='old'), pol=isEV?heurPlayEV:heurPlay;
+  EVP.mv=isEV?buildMateViews():null;
   RC.cc=G.calledCard; RC.caller=G.caller;
   while(n<maxS && (n<minS || performance.now()-t0<budget)){
     const W=sampleWorld(o); RC.partner=W.partner;
@@ -688,13 +803,13 @@ function decide(o){
       hs[o].splice(hs[o].indexOf(c),1);
       const tr=G.trick.map(x=>({p:x.p,c:x.c})); tr.push({p:o,c});
       RC.rev=G.revealed||c===G.calledCard;
-      const g=endgame?exact(hs,tr,(o+1)%5,G.trump,W.team,-1,999):rollout(hs,tr,(o+1)%5,G.trump,W.team);
+      const g=endgame?exact(hs,tr,(o+1)%5,G.trump,W.team,-1,999):rollout(hs,tr,(o+1)%5,G.trump,W.team,pol);
       const cp=soFar+g, myPts=mineCaller?cp:120-cp, win=mineCaller?cp>=G.target:cp<G.target;
       util[i]+=(win?1:0)+0.35*myPts/120;
     }
     n++;
   }
-  const adj=strategicAdj(o,hand);
+  const adj=isEV?new Float64Array(nC):strategicAdj(o,hand);
   let bi=0, bv=-1e9; for(let i=0;i<nC;i++){const v=util[i]/n+adj[i]; if(v>bv){bv=v;bi=i;}}
   return hand[bi];
 }
