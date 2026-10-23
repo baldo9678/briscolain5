@@ -567,6 +567,21 @@ function strategicAdj(o,hand){
       for(let r=0;r<10;r++){const x=t*10+r; if(!G.seen[x] && !hand.includes(x)){ outT++; if(STR[x]>STR[c]) higher++; }}
       if(outT>=3){ if(higher===0) adj[i]+=0.06; else if(STR[c]>=6 && STR[c]<=8) adj[i]+=0.045; }
     }
+    // chiamante (e socio che sa di esserlo): niente carichi sperando che il compagno prenda.
+    // Si carica solo se chi sta prendendo è sicuramente della squadra e la presa non è più a rischio.
+    const callerSide=o===G.caller || (G.partner===o && (G.revealed || hand.includes(cc)));
+    if(callerSide && SUIT[c]!==t && PTS[c]>=3 && !(wi>=0 && b)){
+      let pT=0;
+      if(wi>=0){
+        if(wp===G.caller || (G.revealed && wp===G.partner)) pT=1;
+        else if(o===G.caller && !G.revealed && G.bel[o] && !G.bel[o].known){ const bb=G.bel[o], k=bb.hyps.indexOf(wp); pT=k>=0?bb.w[k]:0; }
+      }
+      const after=4-tr.length;
+      let beatable=false;
+      if(after>0){ const ref=wi>=0?wc:c; for(let x=0;x<40 && !beatable;x++) if(!G.seen[x] && !hand.includes(x) && beats(x,ref,t)) beatable=true; }
+      const keep=pT*(beatable?0.45:1);                   // quanto è probabile che il carico resti alla squadra
+      adj[i]-=(0.05+0.011*PTS[c])*(1-keep)*(hand.length>=3?1:0.35);
+    }
     // non caricare su chi potrebbe essere il socio: carichi gratis al chiamante
     if(defender && !G.revealed && wi>=0 && wp!==G.caller && wp!==o && !b && PTS[c]>=10 && G.bel[o] && !G.bel[o].known){
       const bb=G.bel[o], k=bb.hyps.indexOf(wp); if(k>=0) adj[i]-=0.08*bb.w[k];
