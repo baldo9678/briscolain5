@@ -315,9 +315,11 @@ function heurPlay(h,p,tr,t,team,hs){
   }
   const wi=winIdx(tr,t), wc=tr[wi].c, wp=tr[wi].p;
   let P=0; for(const x of tr) P+=PTS[x.c];
+  const aceHold=p===RC.caller && h.length>=5 && h.includes(t*10) && !(tr.some(x=>x.c===t*10+2) || P>=15);
   const after=[]; for(let k=1;k<=4-L;k++) after.push((p+k)%5);
   let mateL=0, oppL=0; for(const q of after){const l=loadOf(hs[q],t); if(team[q]===team[p]) mateL+=l; else oppL+=l;}
   for(const c of h){
+    if(aceHold && c===t*10) continue;
     const b=beats(c,wc,t), nc=b?c:wc, mine=b?true:team[wp]===team[p];
     let oppT=0, mateT=0;
     for(const q of after){const th=threat(q,nc,t,hs); if(team[q]===team[p]) mateT=Math.max(mateT,th); else oppT=Math.max(oppT,th);}
@@ -657,7 +659,14 @@ function strategicAdj(o,hand){
 function decide(o){
   const all=G.hands[o]; if(all.length===1) return all[0];
   // il chiamante non apre mai con l'Asso di briscola: serve a schiacciare il Tre
-  const hand=(o===G.caller && G.trick.length===0 && all.length>1) ? all.filter(c=>c!==G.trump*10) : all;
+  // l'Asso di briscola del chiamante è il deterrente per schiacciare il Tre: non apre mai con l'Asso,
+  // e nelle prime mani lo gioca da dietro solo se a terra c'è il Tre di briscola o una presa da almeno 15 punti
+  let aceOk=true;
+  if(o===G.caller && all.includes(G.trump*10) && all.length>1){
+    if(G.trick.length===0) aceOk=false;
+    else if(all.length>=5){ let P=0; for(const x of G.trick) P+=PTS[x.c]; aceOk=G.trick.some(x=>x.c===G.trump*10+2) || P>=15; }
+  }
+  const hand=aceOk ? all : all.filter(c=>c!==G.trump*10);
   if(hand.length===1) return hand[0];
   const nC=hand.length, util=new Float64Array(nC);
   const endgame=Math.max(...G.hands.map(h=>h.length))<=3;
