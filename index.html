@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 16:30</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 17:10</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -882,6 +882,24 @@ function decide(o){
     const quiet=hand.filter(x=>SUIT[x]!==t && PTS[x]<=2 && x!==G.calledCard);
     if(quiet.length && Math.random()<pDisguise) hand=quiet;
   }
+  // settima mano: due briscole alte della stessa squadra non devono incontrarsi all'ultima presa
+  if(all.length===2 && !G.revealed){
+    const t=G.trump, cc=G.calledCard;
+    if(SUIT[cc]===t && !G.seen[cc]){
+      if(o===G.caller){
+        // il chiamante ha una briscola più alta della carta chiamata (es. Asso con il Tre chiamato): la gioca ora
+        const hi=all.find(x=>SUIT[x]===t && STR[x]>STR[cc]);
+        const partnerPlayed=G.trick.some(x=>x.c===cc);
+        if(hi!==undefined && !partnerPlayed) return hi;
+      } else if(all.includes(cc)){
+        // il socio: se il chiamante ha già giocato in questa mano senza prendere con una briscola più alta,
+        // e una briscola più alta della chiamata è ancora fuori (forse del chiamante), gioca la carta chiamata ora
+        const cIdx=G.trick.findIndex(x=>x.p===G.caller);
+        let higherOut=false; for(let x=t*10;x<t*10+10;x++) if(STR[x]>STR[cc] && !G.seen[x]) higherOut=true;
+        if(cIdx>=0 && higherOut && !(SUIT[G.trick[cIdx].c]===t && STR[G.trick[cIdx].c]>STR[cc])) return cc;
+      }
+    }
+  }
   if(hand.length===1) return hand[0];
   const nC=hand.length, util=new Float64Array(nC);
   const endgame=Math.max(...G.hands.map(h=>h.length))<=3;
@@ -922,7 +940,7 @@ function decide(o){
     const ia=hand.indexOf(t*10);
     if(ia>=0){
       let bias=(p7-p8)*0.01;
-      if(treLive) bias-=0.03;            // il Tre è ancora fuori: tenerlo per l'ultima presa può schiacciarlo
+      if(treLive && !(t3===G.calledCard && o===G.caller)) bias-=0.03;   // il Tre avversario è ancora fuori: tenerlo per schiacciarlo all'ultima
       adj[ia]+=Math.max(-0.12,Math.min(0.12,bias));
     }
   }
@@ -943,7 +961,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
-const ENGINE_VER='24/10 16:30';
+const ENGINE_VER='24/10 17:10';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
