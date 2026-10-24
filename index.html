@@ -315,7 +315,7 @@ function heurPlay(h,p,tr,t,team,hs){
   }
   const wi=winIdx(tr,t), wc=tr[wi].c, wp=tr[wi].p;
   let P=0; for(const x of tr) P+=PTS[x.c];
-  const aceHold=p===RC.caller && h.length>=4 && h.includes(t*10) && P<20;
+  const aceHold=p===RC.caller && h.length>=3 && h.includes(t*10) && P<20;
   const after=[]; for(let k=1;k<=4-L;k++) after.push((p+k)%5);
   let mateL=0, oppL=0; for(const q of after){const l=loadOf(hs[q],t); if(team[q]===team[p]) mateL+=l; else oppL+=l;}
   for(const c of h){
@@ -814,8 +814,12 @@ function dominated(o,hand){
     if(wi>=0 && SUIT[c]===t && STR[c]>=8 && b && P<6 && hand.length>=5 && hand.some(x=>x!==c && (SUIT[x]!==t || STR[x]<STR[c]))) bad.add(c);
     // 5. superare la presa di un compagno sicuro con una briscola alta su pochi punti
     if(wi>=0 && b && SUIT[c]===t && STR[c]>=8 && wp!==o && rootMate(o,wp)>=0.9 && P<10 && hand.some(x=>x!==c && !(SUIT[x]===t&&STR[x]>=8))) bad.add(c);
-    // 6. superare con una briscola un compagno sicuro la cui carta nessuno può più battere
-    if(wi>=0 && b && SUIT[c]===t && wp!==o && rootMate(o,wp)>=0.9 && !unseenBeats(wc) && hand.some(x=>!beats(x,wc,t))) bad.add(c);
+    // 6. mai superare in briscola un compagno sicuro che ha una briscola buona
+    //    (nessuno di quelli che giocano dopo può batterla): si supera solo l'avversario
+    if(wi>=0 && b && SUIT[c]===t && wp!==o && rootMate(o,wp)>=0.9 && hand.some(x=>!beats(x,wc,t))){
+      const goodMate=SUIT[wc]===t ? !unseenBeats(wc) : !unseenBeats(wc);
+      if(goodMate) bad.add(c);
+    }
     // 4. da quarto, caricare su una presa che probabilmente è degli avversari, avendo un liscio
     if(pos===4 && SUIT[c]!==t && PTS[c]>=10 && !b && rootMate(o,wp)<0.5 && cheapSide.length) bad.add(c);
   }
@@ -832,7 +836,7 @@ function decide(o){
   let aceOk=true;
   if(o===G.caller && all.includes(G.trump*10) && all.length>1){
     if(G.trick.length===0) aceOk=false;
-    else if(all.length>=4){
+    else if(all.length>=3){
       // l'Asso si gioca solo con almeno 20 punti a terra e se non ho un'altra briscola
       // più alta di tutte quelle che gli avversari possono ancora avere
       const t=G.trump; let P=0; for(const x of G.trick) P+=PTS[x.c];
@@ -873,6 +877,21 @@ function decide(o){
     n++;
   }
   const adj=isEV?new Float64Array(nC):strategicAdj(o,hand);
+  // settima mano con l'Asso di briscola in mano: lo gioco ora se l'ultima presa varrà meno di questa
+  if(isEV && all.length===2 && hand.includes(G.trump*10) && G.trick.length>0){
+    const t=G.trump, mine=G.hands[o]; let P=0; for(const x of G.trick) P+=PTS[x.c];
+    let uPts=0, uN=0; for(let x=0;x<40;x++) if(!G.seen[x] && !mine.includes(x)){ uPts+=PTS[x]; uN++; }
+    const avg=uN?uPts/uN:0, toPlay=4-G.trick.length;
+    const p7=P+avg*toPlay, other=mine.find(x=>x!==t*10);
+    const p8=avg*4+PTS[other];
+    const t3=t*10+2, treLive=!G.seen[t3] && !mine.includes(t3);
+    const ia=hand.indexOf(t*10);
+    if(ia>=0){
+      let bias=(p7-p8)*0.01;
+      if(treLive) bias-=0.03;            // il Tre è ancora fuori: tenerlo per l'ultima presa può schiacciarlo
+      adj[ia]+=Math.max(-0.12,Math.min(0.12,bias));
+    }
+  }
   let bi=0, bv=-1e9; for(let i=0;i<nC;i++){const v=util[i]/n+adj[i]; if(v>bv){bv=v;bi=i;}}
   return hand[bi];
 }
