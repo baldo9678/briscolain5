@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 14:00</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 14:10</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -820,9 +820,10 @@ function dominated(o,hand){
     if(wi>=0 && b && SUIT[c]===t && STR[c]>=8 && wp!==o && rootMate(o,wp)>=0.9 && P<10 && hand.some(x=>x!==c && !(SUIT[x]===t&&STR[x]>=8))) bad.add(c);
     // 6. mai superare in briscola un compagno sicuro che ha una briscola buona
     //    (nessuno di quelli che giocano dopo può batterla): si supera solo l'avversario
-    if(wi>=0 && b && SUIT[c]===t && wp!==o && rootMate(o,wp)>=0.9 && hand.some(x=>!beats(x,wc,t))){
-      const goodMate=SUIT[wc]===t ? !unseenBeats(wc) : !unseenBeats(wc);
-      if(goodMate) bad.add(c);
+    //    da ultimo la presa del compagno è già sicura: non si supera mai, si carica
+    if(wi>=0 && b && wp!==o && rootMate(o,wp)>=0.9 && hand.some(x=>!beats(x,wc,t))){
+      const goodMate = pos===5 || !unseenBeats(wc);
+      if(goodMate && (SUIT[c]===t || pos===5)) bad.add(c);
     }
     // 7. squadre note: caricare su una presa avversaria quando dopo di me non c'è nessun compagno
     if(wi>=0 && SUIT[c]!==t && PTS[c]>=3 && !b && rootMate(o,wp)<=0.1 && (cheapSide.length||cheapTrump.length)){
@@ -918,7 +919,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
-const ENGINE_VER='24/10 14:00';
+const ENGINE_VER='24/10 14:10';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
