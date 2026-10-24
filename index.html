@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 17:10</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 17:20</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -813,8 +813,9 @@ function dominated(o,hand){
     const b=wi<0||beats(c,wc,t);
     // 1. aprire con un carico (Asso o Tre di seme) che qualcuno può prendere, avendo un liscio
     if(pos===1 && SUIT[c]!==t && PTS[c]>=10 && (cheapSide.length||cheapTrump.length) && unseenBeats(c) && hand.length>=3) bad.add(c);
-    // 2. briscola sotto una briscola più alta, avendo carte di seme
-    if(wi>=0 && SUIT[c]===t && !b && SUIT[wc]===t && hand.some(x=>SUIT[x]!==t) && rootMate(o,wp)<0.9) bad.add(c);
+    // 2. briscola sotto una briscola più alta, avendo un liscio di seme da buttare
+    //    (se le carte di seme sono solo carichi, la briscola bassa sotto è meglio che regalare punti)
+    if(wi>=0 && SUIT[c]===t && !b && SUIT[wc]===t && hand.some(x=>SUIT[x]!==t && PTS[x]<=2) && rootMate(o,wp)<0.9) bad.add(c);
     // 3. Asso, Tre o Re di briscola su una presa povera, avendo altro: la briscola vale di più nelle mani dopo
     if(wi>=0 && SUIT[c]===t && STR[c]>=8 && b && P<6 && hand.length>=4 && hand.some(x=>x!==c && (SUIT[x]!==t || STR[x]<STR[c]))) bad.add(c);
     // 3b. da ultimo (nessuno dopo) prendere una presa povera con Asso, Tre o Re di briscola, avendo una carta
@@ -842,6 +843,11 @@ function dominated(o,hand){
   if(wi>=0 && (pos===4||pos===5) && rootMate(o,wp)<0.9){
     const quietAlt=hand.some(x=>!(SUIT[x]!==t && PTS[x]>=3));
     if(quietAlt) for(const c of hand){ const b=beats(c,wc,t); if(!b && SUIT[c]!==t && PTS[c]>=3) bad.add(c); }
+  }
+  // 10. la presa va a un avversario: piuttosto che regalare un carico si butta una briscola bassa
+  if(wi>=0 && (pos===4||pos===5) && rootMate(o,wp)<=0.5){
+    const lowTrump=hand.some(x=>SUIT[x]===t && PTS[x]===0 && STR[x]<=5);
+    if(lowTrump) for(const c of hand) if(SUIT[c]!==t && PTS[c]>=3 && !beats(c,wc,t)) bad.add(c);
   }
   // 9. presa ricca (almeno 20 punti a terra) da quarto o quinto: se posso prenderla la prendo,
   //    a meno che non sia già di un compagno sicuro. Lasciarla aumenta troppo la varianza della mano.
@@ -961,7 +967,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
-const ENGINE_VER='24/10 17:10';
+const ENGINE_VER='24/10 17:20';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
