@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 14:40</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 15:40</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -837,6 +837,18 @@ function dominated(o,hand){
     // 4. da quarto, caricare su una presa che probabilmente è degli avversari, avendo un liscio
     if(pos===4 && SUIT[c]!==t && PTS[c]>=10 && !b && rootMate(o,wp)<0.5 && cheapSide.length) bad.add(c);
   }
+  // 8. da quarto o quinto non si carica su chi non è sicuramente un compagno (alla prima mano soprattutto:
+  //    non si sa a chi si portano i punti)
+  if(wi>=0 && (pos===4||pos===5) && rootMate(o,wp)<0.9){
+    const quietAlt=hand.some(x=>!(SUIT[x]!==t && PTS[x]>=3));
+    if(quietAlt) for(const c of hand){ const b=beats(c,wc,t); if(!b && SUIT[c]!==t && PTS[c]>=3) bad.add(c); }
+  }
+  // 9. presa ricca (almeno 20 punti a terra) da quarto o quinto: se posso prenderla la prendo,
+  //    a meno che non sia già di un compagno sicuro. Lasciarla aumenta troppo la varianza della mano.
+  if(wi>=0 && (pos===4||pos===5) && P>=20 && rootMate(o,wp)<0.9){
+    const takers=hand.filter(x=>beats(x,wc,t));
+    if(takers.length) for(const c of hand) if(!beats(c,wc,t)) bad.add(c);
+  }
   const keep=hand.filter(c=>!bad.has(c));
   return keep.length?keep:hand;
 }
@@ -931,7 +943,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
-const ENGINE_VER='24/10 14:40';
+const ENGINE_VER='24/10 15:40';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
