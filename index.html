@@ -425,8 +425,9 @@ function pModel(hand,s,r,T){
   let side=0; for(const c of hand) if(SUIT[c]!==s && (c%10===0||c%10===2)) side++;
   z+=0.25*(side-1.2);                        // Assi e Tre negli altri semi aiutano un po'
   if(hand.includes(s*10+r)) z-=1.2;          // carta in mano: si gioca da soli
+  z-=0.4;                                     // prudenza: conto sul socio solo per la carta chiamata più una briscola, non sulla media
   let p=1/(1+Math.exp(-z));
-  if(T>61){ const sig=17, mu=61+sig*probit(Math.min(0.999,Math.max(0.001,p))); p=ncdf((mu-T)/sig); }
+  if(T>61){ const sig=14, mu=61+sig*probit(Math.min(0.999,Math.max(0.001,p))); p=ncdf((mu-T)/sig); }
   return p;
 }
 function bestSuitFor(o,pos,T,allowAlone){
@@ -823,6 +824,11 @@ function dominated(o,hand){
       const goodMate=SUIT[wc]===t ? !unseenBeats(wc) : !unseenBeats(wc);
       if(goodMate) bad.add(c);
     }
+    // 7. squadre note: caricare su una presa avversaria quando dopo di me non c'è nessun compagno
+    if(wi>=0 && SUIT[c]!==t && PTS[c]>=3 && !b && rootMate(o,wp)<=0.1 && (cheapSide.length||cheapTrump.length)){
+      let mateAfter=0; for(let k=1;k<=5-pos;k++) mateAfter=Math.max(mateAfter,rootMate(o,(o+k)%5));
+      if(mateAfter<0.5) bad.add(c);
+    }
     // 4. da quarto, caricare su una presa che probabilmente è degli avversari, avendo un liscio
     if(pos===4 && SUIT[c]!==t && PTS[c]>=10 && !b && rootMate(o,wp)<0.5 && cheapSide.length) bad.add(c);
   }
@@ -875,7 +881,7 @@ function decide(o){
       RC.rev=G.revealed||c===G.calledCard;
       const g=endgame?exact(hs,tr,(o+1)%5,G.trump,W.team,-1,999):rollout(hs,tr,(o+1)%5,G.trump,W.team,pol);
       const cp=soFar+g, myPts=mineCaller?cp:120-cp, win=mineCaller?cp>=G.target:cp<G.target;
-      util[i]+=(win?1:0)+0.35*myPts/120+0.008*evNow;
+      util[i]+=0.6*(win?1:0)+myPts/60+0.012*evNow;
     }
     n++;
   }
