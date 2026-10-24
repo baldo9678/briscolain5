@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 14:00</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -918,6 +918,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
+const ENGINE_VER='24/10 14:00';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
@@ -1160,7 +1161,7 @@ const validPk=pk=>pk && typeof pk.x==='string' && typeof pk.y==='string' && pk.x
 function seenHex(){let s='';for(let i=0;i<40;i+=4){s+=((G.seen[i]|G.seen[i+1]<<1|G.seen[i+2]<<2|G.seen[i+3]<<3)).toString(16);}return s;}
 function pubState(){
   const a=G.auction, end=G.phase==='end';
-  return {v:1,hp:NET.pk,n:G.handNo,ph:G.phase,dl:G.dealer,
+  return {v:1,ev:ENGINE_VER,hp:NET.pk,n:G.handNo,ph:G.phase,dl:G.dealer,
     se:G.seats.map(s=>s.kind==='human'?{pe:s.peer,by:s.by}:0),
     a:a?{t:a.turn,pa:a.passed.map(Number),p:a.pos,T:a.target,b:a.bidder,l:a.last}:null,
     c:G.caller,tr:G.trump,cc:G.calledCard,cp:G.callPos,T:G.target,rv:G.revealed?1:0,pt:(G.revealed||end)?G.partner:-1,
@@ -1236,7 +1237,7 @@ function onState(msg){
   }
   if(NET.hostPeer && msg.peer!==NET.hostPeer && Date.now()-NET.lastState<10000) return;
   const st=msg.data; if(!st||st.v!==1||!Array.isArray(st.hc)||!Array.isArray(st.se)) return;
-  NET.hostPeer=msg.peer; NET.lastState=Date.now();
+  NET.hostPeer=msg.peer; NET.lastState=Date.now(); NET.hostVer=typeof st.ev==='string'?st.ev.slice(0,20):'vecchio';
   if(validPk(st.hp)) NET.hostPk=st.hp;
   const mySeat=st.se.findIndex(s=>s&&s.pe===NET.peer);
   if(NET.mode==='solo'){ G&&(G.tok=++TOK); closeModal(); }
@@ -1534,7 +1535,7 @@ function renderHand(){
 function renderNet(){
   if(!NET.room) return `<p>Il tavolo online non è disponibile: ${esc(NET.why||'collegamento in corso')}.</p>`;
   const peers=NET.room.peers(), conn=NET.room.connected();
-  let h=`<p class="note" style="margin:0 0 10px">${conn?'Connesso':'Connessione in corso…'} · ${peers.length} ${peers.length===1?'persona':'persone'} su questa pagina</p>`;
+  let h=`<p class="note" style="margin:0 0 10px">${(NET.mode==='client'||NET.mode==='watch')?`Motore delle CPU (browser di chi ospita): <b>${esc(NET.hostVer||'?')}</b>${NET.hostVer!==ENGINE_VER?' · <span style="color:var(--lose)">diverso dal tuo: chi ospita deve ricaricare la pagina</span>':''}<br>`:''}${conn?'Connesso':'Connessione in corso…'} · ${peers.length} ${peers.length===1?'persona':'persone'} su questa pagina</p>`;
   const seatRow=(p,btn)=>`<div class="bar" style="grid-template-columns:28px 1fr auto"><span class="v" style="text-align:left">${p+1}</span><span>${esc(nm(p))}${G.seats&&G.seats[p]&&G.seats[p].kind==='cpu'?' <span class="bdg">CPU</span>':''}</span>${btn||'<span></span>'}</div>`;
   if(NET.mode==='solo'){
     h+=`<p>Crea un tavolo e manda il link agli amici: si siedono al posto delle CPU senza bisogno di account. Il motore della partita gira nel tuo browser, quindi tienilo aperto finché giocate.</p><p style="margin:10px 0"><button class="btn primary" data-act="m-host">Crea un tavolo</button></p><p class="note">Per entrare nel tavolo di un amico usa il pulsante Menu e scrivi il suo codice.</p>`;
