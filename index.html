@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 18:20</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 18:55</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -849,9 +849,9 @@ function dominated(o,hand){
     const lowTrump=hand.some(x=>SUIT[x]===t && PTS[x]===0 && STR[x]<=5);
     if(lowTrump) for(const c of hand) if(SUIT[c]!==t && PTS[c]>=3 && !beats(c,wc,t)) bad.add(c);
   }
-  // 11. difensore che gioca subito dopo il chiamante (da secondo) finché il socio è coperto: niente briscola,
+  // 11. prima mano: il difensore che gioca subito dopo il chiamante (da secondo) non mette briscola,
   //     se ha una carta di seme senza punti grossi (la briscola da secondo è il segnale del socio)
-  if(pos===2 && tr[0].p===G.caller && o!==G.caller && !G.revealed && !hand.includes(G.calledCard)){
+  if(pos===2 && G.hands[o].length===8 && tr[0].p===G.caller && o!==G.caller && !G.revealed && !hand.includes(G.calledCard)){
     const sideOk=hand.some(x=>SUIT[x]!==t && PTS[x]<=4);
     if(sideOk) for(const c of hand) if(SUIT[c]===t) bad.add(c);
   }
@@ -973,7 +973,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
-const ENGINE_VER='24/10 18:20';
+const ENGINE_VER='24/10 18:55';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
