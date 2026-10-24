@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 14:10</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 14:40</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -469,7 +469,11 @@ function updateBelief(o,X,c,before){
     if(beats(c,wc,t)){
       const s=(SUIT[c]===t?0.6:0)+(P+PTS[c])/9; if(s<0.15) return;
       type=-1; LR=1+Math.min(2,s);
-      if(W===G.caller && SUIT[c]===t && before.length===1) LR=1.25;   // briscola subito dopo il chiamante: protezione o taglio, ambiguo
+      if(W===G.caller && SUIT[c]===t && before.length===1){
+        // briscola da secondo sulla carta del chiamante: alla prima mano è il segnale tipico del socio che protegge
+        if(tn===1 && P+PTS[c]<15){ type=1; LR=2.4; }
+        else LR=1.25;
+      }
     } else if(PTS[c]>=2){ type=1; LR=1+PTS[c]/5.5; }
     else if(PTS[c]===0 && P>=10 && W===G.caller){ type=1; LR=1.3; }
     else return;
@@ -499,7 +503,7 @@ function inferLik(o,X,c,before,h){
       for(let i=0;i<need;i++) hh.push(pool[j++]);
       hs[q]=hh;
     }
-    if(heurPlay(hs[X],X,before,t,team,hs)===c) hit++;
+    { const mv=EVP.mv; EVP.mv=null; const pick=heurPlayEV(hs[X],X,before,t,team,hs); EVP.mv=mv; if(pick===c) hit++; }
   }
   Object.assign(RC,sv);
   return hit/K;
@@ -857,7 +861,15 @@ function decide(o){
     }
   }
   const hand0=aceOk ? all : all.filter(c=>c!==G.trump*10);
-  const hand=(!(G.agent&&G.agent[o]==='old') && hand0.length>1)?dominated(o,hand0):hand0;
+  let hand=(!(G.agent&&G.agent[o]==='old') && hand0.length>1)?dominated(o,hand0):hand0;
+  if(o===G.partner && o!==G.caller && !G.revealed && all.length===8 && G.trick.length===1 && G.trick[0].p===G.caller){
+    const t=G.trump, lead=G.trick[0].c;
+    const nT=all.filter(x=>SUIT[x]===t).length;
+    const strong=all.filter(x=>SUIT[x]===t && STR[x]>=7).length;      // Fante o più
+    const pDisguise = PTS[lead]>=10 ? 0.1 : nT<=2 ? 0.6 : (nT===3 && strong<=1) ? 0.45 : nT===3 ? 0.3 : 0.15;
+    const quiet=hand.filter(x=>SUIT[x]!==t && PTS[x]<=2 && x!==G.calledCard);
+    if(quiet.length && Math.random()<pDisguise) hand=quiet;
+  }
   if(hand.length===1) return hand[0];
   const nC=hand.length, util=new Float64Array(nC);
   const endgame=Math.max(...G.hands.map(h=>h.length))<=3;
@@ -919,7 +931,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
-const ENGINE_VER='24/10 14:10';
+const ENGINE_VER='24/10 14:40';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
