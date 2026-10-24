@@ -315,7 +315,7 @@ function heurPlay(h,p,tr,t,team,hs){
   }
   const wi=winIdx(tr,t), wc=tr[wi].c, wp=tr[wi].p;
   let P=0; for(const x of tr) P+=PTS[x.c];
-  const aceHold=p===RC.caller && h.length>=5 && h.includes(t*10) && !(tr.some(x=>x.c===t*10+2) || P>=15);
+  const aceHold=p===RC.caller && h.length>=4 && h.includes(t*10) && P<20;
   const after=[]; for(let k=1;k<=4-L;k++) after.push((p+k)%5);
   let mateL=0, oppL=0; for(const q of after){const l=loadOf(hs[q],t); if(team[q]===team[p]) mateL+=l; else oppL+=l;}
   for(const c of h){
@@ -682,7 +682,7 @@ function mateView(p,q,team){
   return p===RC.caller ? 0.25 : 2/3;                                  // senza letture: uniforme
 }
 /* valore futuro di una carta: punti che porterà nelle mani che restano se la tengo */
-function futureVal(c,t,hs,p,trickPts){
+function futureVal(c,t,hs,p,trickPts,team){
   const tricksLeft=hs[p].length;                                      // carte che mi restano dopo questa
   if(tricksLeft<=0) return 0;
   let left=0; for(let q=0;q<5;q++) for(const x of hs[q]) left+=PTS[x];
@@ -690,7 +690,14 @@ function futureVal(c,t,hs,p,trickPts){
   if(SUIT[c]===t){
     let higher=0; for(let q=0;q<5;q++){ if(q===p) continue; for(const x of hs[q]) if(SUIT[x]===t && STR[x]>STR[c]) higher++; }
     const pWin=1/(1+0.75*higher);
-    return pWin*(PTS[c]+1.3*perTrick) - (1-pWin)*PTS[c]*0.5;
+    let v=pWin*(PTS[c]+1.3*perTrick) - (1-pWin)*PTS[c]*0.5;
+    if(higher===0 && tricksLeft>=2){
+      let nx=-1, nxOwner=-1;
+      for(let q=0;q<5;q++){ if(q===p) continue; for(const x of hs[q]) if(SUIT[x]===t && STR[x]<STR[c] && (nx<0||STR[x]>STR[nx])){ nx=x; nxOwner=q; } }
+      for(const x of hs[p]) if(SUIT[x]===t && nx>=0 && STR[x]>STR[nx]) nx=-1;   // la seconda ce l'ho io: nessuna promozione
+      if(nx>=0){ const opp=team? team[nxOwner]!==team[p] : true; if(opp) v+=PTS[nx]+0.6*perTrick; }
+    }
+    return v;
   }
   // carta di seme con punti: se è la più alta rimasta del suo seme può ancora prendere
   if(PTS[c]>=10){
@@ -703,7 +710,7 @@ const sigm=x=>1/(1+Math.exp(-x));
 /* la carta più economica (per valore futuro) con cui q batte la carta che sta prendendo */
 function cheapestBeat(h,card,t,hs,q,trickPts){
   let best=-1, bc=1e9;
-  for(const x of h) if(beats(x,card,t)){ const k=futureVal(x,t,hs,q,trickPts)-PTS[x]*0.5; if(k<bc){bc=k;best=x;} }
+  for(const x of h) if(beats(x,card,t)){ const k=futureVal(x,t,hs,q,trickPts,null)-PTS[x]*0.5; if(k<bc){bc=k;best=x;} }
   return best<0?null:{c:best,cost:bc};
 }
 /* valore atteso, per p, di giocare la carta c */
@@ -737,7 +744,7 @@ function evCard(h,p,c,tr,t,team,hs){
     if(ld) T+=ld*sigm((qHolds2-0.7)*8)*0.9;
   }
   let v=T*(2*pMine-1);
-  v-=futureVal(c,t,hs,p,P);
+  v-=futureVal(c,t,hs,p,P,team);
   // chi vince apre la mano dopo; chi chiude (il giocatore prima di lui) è un vantaggio se è un compagno
   const nxtCloserMate=mateView(p,(p+4)%5,team);
   v+=pMine*(nxtCloserMate>0.5?2:-1.5);
@@ -805,6 +812,10 @@ function dominated(o,hand){
     if(wi>=0 && SUIT[c]===t && !b && SUIT[wc]===t && hand.some(x=>SUIT[x]!==t) && rootMate(o,wp)<0.9) bad.add(c);
     // 3. Asso, Tre o Re di briscola su una presa povera nelle prime mani, avendo altro
     if(wi>=0 && SUIT[c]===t && STR[c]>=8 && b && P<6 && hand.length>=5 && hand.some(x=>x!==c && (SUIT[x]!==t || STR[x]<STR[c]))) bad.add(c);
+    // 5. superare la presa di un compagno sicuro con una briscola alta su pochi punti
+    if(wi>=0 && b && SUIT[c]===t && STR[c]>=8 && wp!==o && rootMate(o,wp)>=0.9 && P<10 && hand.some(x=>x!==c && !(SUIT[x]===t&&STR[x]>=8))) bad.add(c);
+    // 6. superare con una briscola un compagno sicuro la cui carta nessuno può più battere
+    if(wi>=0 && b && SUIT[c]===t && wp!==o && rootMate(o,wp)>=0.9 && !unseenBeats(wc) && hand.some(x=>!beats(x,wc,t))) bad.add(c);
     // 4. da quarto, caricare su una presa che probabilmente è degli avversari, avendo un liscio
     if(pos===4 && SUIT[c]!==t && PTS[c]>=10 && !b && rootMate(o,wp)<0.5 && cheapSide.length) bad.add(c);
   }
@@ -821,7 +832,15 @@ function decide(o){
   let aceOk=true;
   if(o===G.caller && all.includes(G.trump*10) && all.length>1){
     if(G.trick.length===0) aceOk=false;
-    else if(all.length>=5){ let P=0; for(const x of G.trick) P+=PTS[x.c]; aceOk=G.trick.some(x=>x.c===G.trump*10+2) || P>=15; }
+    else if(all.length>=4){
+      // l'Asso si gioca solo con almeno 20 punti a terra e se non ho un'altra briscola
+      // più alta di tutte quelle che gli avversari possono ancora avere
+      const t=G.trump; let P=0; for(const x of G.trick) P+=PTS[x.c];
+      const wc=G.trick[winIdx(G.trick,t)].c;
+      let topOut=-1; for(let x=t*10;x<t*10+10;x++) if(!G.seen[x] && !all.includes(x) && (topOut<0||STR[x]>STR[topOut])) topOut=x;
+      const safeOther=all.some(x=>x!==t*10 && SUIT[x]===t && (topOut<0||STR[x]>STR[topOut]) && beats(x,wc,t));
+      aceOk=P>=20 && !safeOther;
+    }
   }
   const hand0=aceOk ? all : all.filter(c=>c!==G.trump*10);
   const hand=(!(G.agent&&G.agent[o]==='old') && hand0.length>1)?dominated(o,hand0):hand0;
