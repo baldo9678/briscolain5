@@ -197,7 +197,7 @@ table.sc td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700
 
 <div class="app">
   <header class="top">
-    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 17:20</span></div>
+    <div class="brand"><h1>Briscola in 5</h1><span class="sub">Con gli amici o contro le CPU · asta al ribasso · motore 24/10 18:00</span></div>
     <div class="controls">
       <label class="lbl" for="speed">Velocità
         <select id="speed"><option value="lenta">Lenta</option><option value="normale" selected>Normale</option><option value="veloce">Veloce</option></select>
@@ -967,7 +967,7 @@ function later(fn,ms){const tok=G.tok;setTimeout(()=>{if(G.tok===tok) fn();},ms)
    'client' (seduto a un tavolo altrui), 'watch' (guardi un tavolo senza sederti) */
 const NET={room:null,user:null,owner:false,mode:'solo',peer:null,kp:null,pk:null,hostPk:null,hostPeer:null,lastState:0,keys:new Map(),myHand:{n:-1,h:[]},hv:62,names:{},shownEnd:-1};
 let ME=0;
-const ENGINE_VER='24/10 17:20';
+const ENGINE_VER='24/10 18:00';
 const inviteUrl=()=>location.origin+location.pathname+'?t='+(NET.code||'');
 const hosted=()=>/^https?:$/.test(location.protocol);
 try{ NET.nick=(localStorage.getItem('b5nick')||'').slice(0,24); }catch(e){ NET.nick=''; }
@@ -1101,7 +1101,10 @@ function cpuBluff(p){
 function cpuAuction(p){
   const a=G.auction;
   if(a.pos<9){ const pos=a.pos+1;
-    if(cpuWants(p,pos,61)) doBid(p,pos,61);
+    // non serve scendere di un solo grado: se il grado successivo non va bene (es. ho Asso e Tre e non posso
+    // chiamare il Tre), si salta al primo grado che conviene
+    let jump=-1; for(let q=pos;q<=9;q++) if(cpuWants(p,q,61)){ jump=q; break; }
+    if(jump>=0) doBid(p,jump,61);
     else if(cpuBluff(p)){ G.bluffs.push({p,pos,r:AUCT[pos+1],ps:G.lastBluffP}); doBid(p,pos,61); }
     else doPass(p); }
   else { const T=a.target+1; if(T<=120 && cpuWants(p,9,T)) doBid(p,9,T); else doPass(p); }
