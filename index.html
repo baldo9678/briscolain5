@@ -810,8 +810,11 @@ function dominated(o,hand){
     if(pos===1 && SUIT[c]!==t && PTS[c]>=10 && (cheapSide.length||cheapTrump.length) && unseenBeats(c) && hand.length>=3) bad.add(c);
     // 2. briscola sotto una briscola più alta, avendo carte di seme
     if(wi>=0 && SUIT[c]===t && !b && SUIT[wc]===t && hand.some(x=>SUIT[x]!==t) && rootMate(o,wp)<0.9) bad.add(c);
-    // 3. Asso, Tre o Re di briscola su una presa povera nelle prime mani, avendo altro
-    if(wi>=0 && SUIT[c]===t && STR[c]>=8 && b && P<6 && hand.length>=5 && hand.some(x=>x!==c && (SUIT[x]!==t || STR[x]<STR[c]))) bad.add(c);
+    // 3. Asso, Tre o Re di briscola su una presa povera, avendo altro: la briscola vale di più nelle mani dopo
+    if(wi>=0 && SUIT[c]===t && STR[c]>=8 && b && P<6 && hand.length>=4 && hand.some(x=>x!==c && (SUIT[x]!==t || STR[x]<STR[c]))) bad.add(c);
+    // 3b. da ultimo (nessuno dopo) prendere una presa povera con Asso, Tre o Re di briscola, avendo una carta
+    //     senza punti da buttare: si va liscio e la briscola resta per prese più ricche
+    if(pos===5 && SUIT[c]===t && STR[c]>=8 && b && P<10 && hand.length>=3 && hand.some(x=>x!==c && PTS[x]===0 && (SUIT[x]!==t || STR[x]<=5))) bad.add(c);
     // 5. superare la presa di un compagno sicuro con una briscola alta su pochi punti
     if(wi>=0 && b && SUIT[c]===t && STR[c]>=8 && wp!==o && rootMate(o,wp)>=0.9 && P<10 && hand.some(x=>x!==c && !(SUIT[x]===t&&STR[x]>=8))) bad.add(c);
     // 6. mai superare in briscola un compagno sicuro che ha una briscola buona
